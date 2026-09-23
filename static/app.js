@@ -1,24 +1,46 @@
 ﻿import {MapAdapter} from './map-adapter.js';
 import {districts, districtById, districtByName} from './game-geography.js';
 import {icon, measureIcons} from './city-map.js';
+import {CityPulse} from './city-pulse.js';
 
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=n=>Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2});
 const sign=n=>(n>0?'+':'')+fmt(n);
 const statusNames={new:'Открытая проблема',planned:'Решение в плане',improved:'Есть улучшение',unresolved:'Пока без улучшения'};
-const severityNames={critical:'Критично',high:'Высокий приоритет',medium:'Требует внимания',normal:'В норме'};
+const severityNames={critical:'Критическая проблема',high:'Высокий приоритет',medium:'Требует внимания',attention:'Требует внимания',normal:'В норме'};
 const severity=v=>v<40?'critical':v<50?'high':v<60?'medium':'normal';
 // Domain state remains independent of map camera/style. No quarterly indicators.
 const state={data:null,plan:[],district:null,issue:null,problem:null,drawer:'map',context:null,filter:'Все',drafts:{},result:null,aftermath:null,appeals:[],alternative:null,branch:'mine',snapshot:'after',quarter:0,busy:false,revision:0,valid:false,validationError:'',aiBusy:false,alternativeBusy:false,answer:'',feedback:'',presentation:'2d'};
 let map,toastTimer,returnFocus;
+state.city=null;state.relevant=null;state.branchRevision=0;
 const currentResult=()=>state.branch==='alternative'?state.alternative?.result:state.result;
 const currentPlan=()=>state.branch==='alternative'?state.alternative.plan:state.plan;
 const currentAftermath=()=>state.branch==='alternative'?state.alternative.aftermath:state.aftermath;
 const currentAppeals=()=>state.branch==='alternative'?state.alternative.appeals:state.appeals;
 const showingBefore=()=>!!currentResult()&&state.snapshot==='before';
 const displayedResult=()=>showingBefore()?null:currentResult();
-const displayedAppeals=()=>showingBefore()?state.data.appeals:currentAppeals();
+const currentCity=()=>state.branch==='alternative'?state.alternative.city:state.city;
+const displayedCity=()=>showingBefore()?currentCity().bundle.initial:currentCity().current;
+const displayedAppeals=()=>currentCity().issues(showingBefore());
+
+async function enrichCity(city,plan,stage){
+  if(!state.data.ai_available)return;
+  const revision=state.revision,branchRevision=state.branchRevision;
+  try{
+    const response=await api('/api/events/wording',{plan,stage,run_id:city.runId,branch:city.branch});
+    if(revision!==state.revision||branchRevision!==state.branchRevision||currentCity()!==city)return;
+    if(city.applyWording(response)){
+      renderInspector();if(state.drawer==='pulse')renderAppeals();if(state.context==='advisor')renderAdvisor();renderReactions();
+    }
+  }catch(_){/* Immediate deterministic wording stays visible. */}
+}
+function renderPulseBadge(){
+  const city=currentCity();if(!city)return;
+  if(state.drawer==='pulse')city.markRead();
+  const count=city.unread;$('pulse-unread').hidden=!count;$('pulse-unread').textContent=count;
+  $('pulse-unread').setAttribute('aria-label',`Новых событий: ${count}`);
+}
 
 async function api(path,body){
   const response=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -47,7 +69,13 @@ function updatePlannedAppeals(){
 }
 async function changed(){
   state.revision++;state.result=null;state.aftermath=null;state.alternative=null;state.branch='mine';state.snapshot='after';state.quarter=0;state.valid=false;state.validationError='';state.feedback='';state.answer='';state.alternativeBusy=false;
-  updatePlannedAppeals();persist();render();
+  state.city=new CityPulse(state.data.city,state.city);updatePlannedAppeals();persist();render();
+  const contextRevision=state.revision;
+  // Partial plans have no simulated final values. This request only annotates priorities.
+  api('/api/events/context',{plan:state.plan,run_id:`draft-${contextRevision}`}).then(bundle=>{
+    if(contextRevision!==state.revision)return;
+    state.city=new CityPulse(bundle,state.city);render();enrichCity(state.city,structuredClone(state.plan),'baseline');
+  }).catch(()=>{});
   if(localErrors().length||state.plan.length!==5)return;
   const revision=state.revision;
   try{await api('/api/validate',{plan:state.plan});if(revision!==state.revision)return;state.valid=true;renderHeader();}
@@ -82,7 +110,8 @@ function renderHeader(){
   document.body.dataset.branch=state.branch;
 }
 function renderMap(){
-  map?.update({district:state.district,issue:state.issue,appeals:displayedAppeals(),plan:showingBefore()?[]:currentPlan(),measures:state.data.measures,scores:displayedResult()?.result||state.data.baseline,quarter:showingBefore()?0:state.quarter,showIssues:true,showProjects:true});
+  const ids=displayedCity().map_issue_ids;
+  map?.update({district:state.district,issue:state.issue,appeals:displayedAppeals().filter(a=>ids.includes(a.id)||a.id===state.issue),plan:showingBefore()?[]:currentPlan(),measures:state.data.measures,scores:displayedResult()?.result||state.data.baseline,quarter:showingBefore()?0:state.quarter,showIssues:true,showProjects:true});
 }
 function hideSmallMenus(){for(const id of ['menu','district-picker'])$(id).hidden=true;$('menu-toggle').setAttribute('aria-expanded','false');$('district-picker-toggle').setAttribute('aria-expanded','false');}
 function syncSurfaces(){
@@ -93,7 +122,7 @@ function syncSurfaces(){
 }
 function showDrawer(name,focus=true){
   returnFocus=document.activeElement;state.drawer=name;state.context=null;hideSmallMenus();syncSurfaces();renderDrawer();
-  if(name!=='map'&&focus)$('drawer-close').focus({preventScroll:true});
+  renderPulseBadge();if(name!=='map'&&focus)$('drawer-close').focus({preventScroll:true});
 }
 function closeOverlay(){state.drawer='map';state.context=null;hideSmallMenus();syncSurfaces();if(returnFocus?.isConnected&&!returnFocus.closest('[hidden]'))returnFocus.focus({preventScroll:true});else document.querySelector('#navigation [data-view=map]').focus();}
 function selectDistrict(id){
@@ -105,14 +134,14 @@ function selectIssue(id){
   selectDistrict(a.district);state.issue=id;state.problem=a.indicator_code;renderMap();renderInspector();
 }
 function valuesFor(name){return displayedResult()?.districts[name].after||state.data.districts[name].indicators;}
-function priorityProblems(name){return Object.entries(valuesFor(name)).sort((a,b)=>a[1]-b[1]).slice(0,3);}
+function priorityProblems(name){return displayedCity().issues.filter(a=>a.district===name).slice(0,3).map(a=>[a.indicator,a.value]);}
 function renderInspector(){
   if(!state.district)return;
   const name=state.district,r=displayedResult(),d=r?.districts[name],score=d?d.score_after:state.data.baseline.district_scores[name];
   const appeal=displayedAppeals().find(a=>a.district===name&&a.indicator_code===state.problem);
   const metrics=Object.entries(state.data.indicators).map(([key,label])=>{const after=valuesFor(name)[key],delta=d?d.delta[key]:0;return `<div class="indicator-row"><div class="indicator-line"><span>${esc(label)}</span><b>${fmt(after)}${delta?`<span class="${delta<0?'negative':'delta'}"> ${sign(delta)}</span>`:''}</b></div><div class="indicator-track"><i class="${after<40?'critical':''}" style="width:${after}%"></i></div></div>`;}).join('');
   $('district-content').innerHTML=`<span class="eyebrow">РАЙОН ГОРОДА</span><div class="district-title-row"><h2 id="district-title">${esc(name)}</h2><div><strong>${fmt(score)}</strong><small>качество жизни</small></div></div><div class="section-caption">Главные проблемы</div>${priorityProblems(name).map(([key,value])=>`<button class="priority-issue" data-problem="${key}"><strong>${esc(state.data.indicators[key])}</strong><b>${fmt(value)}</b><small class="${severity(value)}">${severityNames[severity(value)]}</small><span class="issue-arrow">↗</span></button>`).join('')}
-  ${state.problem?`<div class="appeal-detail"><strong>${esc(state.data.indicators[state.problem])}</strong>${appeal?`<blockquote>«${esc(appeal.message)}»</blockquote><span class="source-label">${appeal.source==='ai'?'AI-текст':'Локальный текст'} · синтетическое обращение</span>`:''}<button class="text-button" data-resolve="${state.problem}">Найти решение ↗</button></div>`:''}
+  ${state.problem?`<div class="appeal-detail" data-current-issue="${esc(appeal?.id||'')}"><strong>${esc(state.data.indicators[state.problem])}</strong>${appeal?`<div class="metric-line">${fmt(appeal.value)} / 100 · <span class="${appeal.severity}">${severityNames[appeal.severity]}</span></div><blockquote>«${esc(appeal.message)}»</blockquote><span class="source-label">${appeal.source==='ai'?'AI-текст':'Локальный текст'} · синтетическое обращение</span>`:''}<button class="text-button" data-focus-district="${districtByName[name].id}">Показать район</button><button class="text-button" data-resolve="${state.problem}">Найти решение ↗</button></div>`:''}
   <button class="primary wide" data-district-decisions>Решения для района <span>↗</span></button><details id="all-metrics"><summary>Все показатели</summary>${metrics}<p class="description">${esc(state.data.districts[name].profile)}</p></details>`;
 }
 function renderDrawer(){
@@ -128,16 +157,19 @@ function renderInitiatives(){
   const cost=state.plan.reduce((sum,s)=>sum+state.data.measures[s.measure_id].cost,0);
   $('drawer-content').innerHTML=`${state.branch==='alternative'?'<p class="description">Вы редактируете свой исходный план. Изменение начнёт новый расчёт.</p>':''}<section class="plan-summary"><h3>Ваш план · ${state.plan.length}/5</h3>${state.plan.length?state.plan.map(s=>`<div class="plan-item"><span>${esc(state.data.measures[s.measure_id].name)}<small>${esc(s.district||'Весь город')} · ${state.data.measures[s.measure_id].cost}</small></span><button data-remove="${s.measure_id}" aria-label="Убрать ${esc(state.data.measures[s.measure_id].name)}" ${state.busy?'disabled':''}>×</button></div>`).join(''):'<p>Выберите, что важно для вашего города.</p>'}<div class="plan-budget"><span>Осталось бюджета</span><strong class="${cost>100?'negative':''}">${100-cost}</strong></div></section>
   <div class="filters">${dirs.map(d=>`<button class="filter-button ${state.filter===d?'active':''}" data-filter="${esc(d)}">${esc(d)}</button>`).join('')}</div>
-  ${Object.entries(state.data.measures).filter(([,m])=>state.filter==='Все'||m.direction===state.filter).map(([id,m])=>{
+  ${state.relevant?`<p class="description">По проблеме: ${esc(state.data.indicators[state.relevant])}. <button class="text-button" data-filter="Все">Все решения</button></p>`:''}
+  ${Object.entries(state.data.measures).filter(([,m])=>state.relevant?(m.effects[state.relevant]||0)>0:state.filter==='Все'||m.direction===state.filter).map(([id,m])=>{
     const selected=state.plan.find(s=>s.measure_id===id),district=selected?.district||state.drafts[id]||state.district||'';
     return `<article class="initiative ${selected?'selected':''}"><div class="initiative-head"><span class="initiative-icon">${icon(measureIcons[id])}</span><h3>${esc(m.name)}</h3><strong class="cost">${m.cost}<small>бюджета</small></strong></div><p class="initiative-meta">Эффект после ${m.lag} ${m.lag===1?'квартала':'кварталов'}</p><div class="initiative-controls">${m.scope==='Район'?`<select data-measure-district="${id}" aria-label="Район для ${esc(m.name)}" ${state.busy?'disabled':''}><option value="" ${!district?'selected':''}>Выберите район</option>${Object.keys(state.data.districts).map(d=>`<option value="${esc(d)}" ${d===district?'selected':''}>${esc(d)}</option>`).join('')}</select>`:'<span>Для всего города</span>'}<button class="${selected?'secondary':'primary'}" data-add="${id}" ${state.busy||(!selected&&state.plan.length===5)?'disabled':''}>${selected?'Убрать':'Выбрать'}</button></div><details><summary>Что изменится</summary><p>${Object.entries(m.scaled_effects).map(([k,v])=>`${esc(state.data.indicators[k])}: ${sign(v)}`).join('<br>')}<br>К концу двух лет, с учётом срока запуска.</p></details></article>`;
   }).join('')}`;
 }
 function renderAppeals(){
-  const final=!!displayedResult();
-  $('drawer-content').innerHTML=`<p class="description">${final?'Город после ваших решений.':'То, что волнует жителей сейчас.'}</p><button class="text-button" data-ai="appeals" ${state.aiBusy||!state.data.ai_available?'disabled':''}>${state.aiBusy?'Обновляем тексты…':state.data.ai_available?'✦ Обновить тексты':'Синтетические обращения'}</button><div class="pulse-heading">${final?'ПОСЛЕ СИМУЛЯЦИИ':'ИСХОДНОЕ СОСТОЯНИЕ'}</div>${displayedAppeals().map(a=>`<article class="appeal-card" data-appeal-id="${esc(a.id)}"><div class="card-line"><strong>${esc(a.district)}</strong><span class="badge ${a.severity}">${severityNames[a.severity]}</span></div><h3>${esc(a.title)}</h3><p>«${esc(a.message)}»</p><div class="metric-line">${fmt(a.before)}${final?` → ${fmt(a.value)}`:''} / 100 · ${statusNames[a.status]}</div><span class="source-label">${a.source==='ai'?'AI-текст':'Локальный текст'} · ${esc(a.resident_type)}</span><button class="text-button" data-issue="${esc(a.id)}">На карте ↗</button></article>`).join('')}`;
-  // The API has snapshots, not an event stream. No invented timestamps/unread count.
-  $('pulse-unread').hidden=true;
+  const city=currentCity();
+  $('drawer-content').innerHTML=`<p class="description">Синтетические события учебной модели · ${city.branch==='alternative'?'альтернативный':'основной'} сценарий. Числовые наблюдения — только до симуляции и в Q8.</p>${city.events.map(e=>{
+    const text=city.text(e);
+    return `<article class="appeal-card" data-event-id="${esc(e.event_id)}" data-event-quarter="${e.quarter}" data-event-type="${e.event_type}"><div class="card-line"><strong>${e.quarter?'Q'+e.quarter:'До симуляции'} · ${esc(e.district||'Весь город')}</strong>${e.severity?`<span class="badge ${e.severity}">${severityNames[e.severity]}</span>`:''}</div><h3>${esc(e.title)}</h3><p>${esc(text.message)}</p>${e.value!==undefined?`<div class="metric-line">${fmt(e.before)}${e.quarter===8?` → ${fmt(e.value)}`:''} / 100</div>`:''}<span class="source-label">${text.source==='ai'?'AI-текст':'Локальный текст'} · ${e.source_basis==='catalog_activation'?'начало работы по каталогу':e.source_basis==='final'?'проверенный итог':'исходные данные'}</span>${e.district?`<button class="text-button" data-focus-district="${districtByName[e.district].id}">На карте ↗</button>`:''}</article>`;
+  }).join('')}`;
+  renderPulseBadge();
 }
 function renderResults(){
   const r=currentResult(),story=currentAftermath();
@@ -146,36 +178,44 @@ function renderResults(){
   const alt=state.alternative;
   $('drawer-content').innerHTML=`<div class="result-number"><span class="old-score">${fmt(r.baseline.score)} →</span> ${fmt(r.result.score)}</div><p class="result-gain">${sign(r.score_delta)} к качеству жизни</p><div class="snapshot-tabs" role="group" aria-label="Состояние города">${['before','after'].map(v=>`<button data-snapshot="${v}" class="${state.snapshot===v?'active':''}" aria-pressed="${state.snapshot===v}">${v==='before'?'До':'После'}</button>`).join('')}</div><p class="source-label">Меняются игровые слои. Реальная карта остаётся прежней.</p><div class="insight"><span>Критические показатели</span><strong>${r.baseline.n_crit} → ${r.result.n_crit}</strong></div><div class="insight"><span>Наибольший прирост · ${esc(best[0])}</span><strong>${sign(best[1].score_delta)}</strong></div><div class="insight"><span>Использовано бюджета</span><strong>${r.total_cost} / 100</strong></div>
   <details id="comparison-details"><summary>Другой сценарий</summary><div>${alt?`<div class="scenario-tabs"><button data-branch="mine" class="${state.branch==='mine'?'active':''}">Моя Астана</button><button data-branch="alternative" class="${state.branch==='alternative'?'active':''}">Альтернатива</button></div><p class="description">${esc(state.data.measures[alt.replaced.measure_id].name)} → ${esc(state.data.measures[alt.replacement.measure_id].name)} · ${esc(alt.replacement.district||'Весь город')}</p><div class="comparison-row"><span>Разница качества жизни</span><strong>${sign(alt.comparison.score_delta)}</strong></div>${Object.entries(alt.comparison.district_deltas).map(([name,delta])=>`<div class="comparison-row"><span>${esc(name)}</span><span class="${delta<0?'negative':'positive'}">${sign(delta)}</span></div>`).join('')}<p class="source-label">Лучшая из ${alt.checked} допустимых замен одной меры, не глобальный оптимум.</p>`:`<button id="alternative" class="secondary wide" ${state.alternativeBusy?'disabled':''}>${state.alternativeBusy?'Сравниваем варианты…':'Найти альтернативу ↗'}</button>`}</div></details>
-  <details id="reactions-details"><summary>Реакции жителей</summary><div><button class="text-button" data-ai="result" ${state.aiBusy||!state.data.ai_available?'disabled':''}>${state.aiBusy?'Готовим тексты…':'✦ Обновить с AI'}</button><span class="source-label">Синтетические реакции · ${story.source==='ai'?'AI':'локальные тексты'}</span>${story.citizen_reactions.map(v=>`<div class="reaction"><strong>${esc(v.district)}</strong><p>«${esc(v.message)}»</p></div>`).join('')}</div></details>
+  <details id="reactions-details"><summary>Реакции жителей</summary><div id="reactions-content"></div></details>
   <details id="press-details"><summary>Пресс-конференция</summary><div><p class="description">${esc(story.press_question.question)}</p><label class="source-label" for="press-answer">Ваш ответ</label><textarea id="press-answer" maxlength="3000" placeholder="Расскажите о ваших приоритетах…">${esc(state.answer)}</textarea><button id="feedback" class="secondary wide" ${state.aiBusy?'disabled':''}>${state.data.ai_available?'Получить отзыв AI':'Памятка для ответа'}</button><p id="feedback-text" class="feedback">${esc(state.feedback)}</p><span class="source-label">Ответ не влияет на оценку города.</span></div></details>`;
+  renderReactions();
+}
+function renderReactions(){
+  if(!$('reactions-content'))return;
+  const city=currentCity(),events=city.events.filter(e=>e.quarter===8);
+  $('reactions-content').innerHTML=`<span class="source-label">Синтетические реакции · проверенные итоги Q8</span>${events.map(e=>`<div class="reaction"><strong>${esc(e.district)} · ${esc(e.title)}</strong><p>${esc(city.text(e).message)}</p><span class="source-label">${fmt(e.before)} → ${fmt(e.value)} · ${city.text(e).source==='ai'?'AI-текст':'Локальный текст'}</span></div>`).join('')}`;
 }
 function renderAdvisor(){
-  const name=state.district||Object.keys(state.data.districts).sort((a,b)=>priorityProblems(a)[0][1]-priorityProblems(b)[0][1])[0];
-  const [key,value]=priorityProblems(name)[0];const story=displayedResult()?currentAftermath():null;
-  $('advisor-content').innerHTML=`<p class="advisor-insight">${esc(name)}: стоит обратить внимание на ${esc(state.data.indicators[key].toLowerCase())}.</p>${story?.source==='ai'?`<p class="description">${esc(story.citizen_reactions.find(r=>r.district===name)?.message||'')}</p>`:''}<span class="source-label">По показателям ${displayedResult()?'после симуляции':'исходного состояния'}</span><div class="advisor-actions"><button class="primary" data-focus-district="${districtByName[name].id}">Показать</button><button class="secondary" data-advisor-decisions="${key}" data-district="${esc(name)}">Что можно сделать?</button></div><details><summary>Почему?</summary><p>${esc(state.data.indicators[key])}: ${fmt(value)} / 100. ${severityNames[severity(value)]}. Это самый низкий показатель выбранного района.</p></details>`;
+  const snapshot=displayedCity(),a=state.district?snapshot.district_advisors[state.district]:snapshot.advisor,p=a.priority;
+  const wording=currentCity().text(a.wording);
+  $('advisor-content').innerHTML=`<p class="advisor-insight">${esc(wording.message)}</p><span class="source-label">${wording.source==='ai'?'AI-текст · ':''}По показателям ${a.basis==='final'?'Q8':'исходного состояния'}</span>${p?`<div class="advisor-actions"><button class="primary" data-focus-district="${districtByName[p.district].id}">Показать</button><button class="secondary" data-advisor-decisions="${p.indicator}" data-district="${esc(p.district)}">Что можно сделать?</button></div><details><summary>Почему?</summary><p>${esc(p.title)}: ${fmt(p.value)} / 100. ${severityNames[p.severity]}. Приоритет: сначала меньший показатель, затем больший вес и стабильный порядок.</p></details>`:''}${Object.keys(a.direction_counts).length?`<p class="description">В плане: ${Object.entries(a.direction_counts).map(([d,n])=>`${esc(d)} — ${n}`).join('; ')}.</p>`:''}${a.untouched?`<p class="description">Выбранные меры пока не нацелены на улучшение: ${esc(a.untouched.title)} · ${esc(a.untouched.district)}.</p>`:''}${a.biggest_gain?`<p class="description">Наибольший итоговый прирост: ${esc(a.biggest_gain.district)} · ${sign(a.biggest_gain.delta)}.</p>`:''}`;
 }
-function render(){renderHeader();renderMap();renderInspector();renderDrawer();if(state.context==='advisor')renderAdvisor();syncSurfaces();}
+function render(){renderHeader();renderMap();renderInspector();renderDrawer();renderPulseBadge();if(state.context==='advisor')renderAdvisor();syncSurfaces();}
 async function simulate(){
   if(!state.valid||state.busy)return;
-  state.revision++;const revision=state.revision;state.busy=true;state.result=null;state.alternative=null;state.branch='mine';state.snapshot='after';state.aftermath=null;state.quarter=0;state.answer='';state.feedback='';updatePlannedAppeals();showDrawer('map',false);render();
+  state.revision++;const revision=state.revision;state.busy=true;state.result=null;state.alternative=null;state.branch='mine';state.snapshot='after';state.aftermath=null;state.quarter=0;state.answer='';state.feedback='';state.city=new CityPulse(state.data.city,state.city);updatePlannedAppeals();showDrawer('map',false);render();
   try{
     const response=await api('/api/simulate',{plan:state.plan});
+    if(revision!==state.revision)return;
+    state.city=new CityPulse(response.city,state.city);render();enrichCity(state.city,structuredClone(state.plan),'final');
     const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
     for(let q=1;q<=8;q++){
       if(revision!==state.revision)return;state.quarter=q;
       const starting=state.plan.filter(s=>state.data.measures[s.measure_id].lag+1===q);
       $('milestone').textContent=starting.length?starting.map(s=>`${state.data.measures[s.measure_id].name} — начинает работу${s.district?' · '+s.district:''}`).join('. '):q===8?'Подводим итоги…':'Город движется вперёд.';
-      renderHeader();renderMap();await new Promise(resolve=>setTimeout(resolve,reduced?30:650));
+      state.city.publish(q);renderHeader();renderMap();renderPulseBadge();if(state.drawer==='pulse')renderAppeals();await new Promise(resolve=>setTimeout(resolve,reduced?30:650));
     }
     if(revision!==state.revision)return;
     // Only now publish authoritative numeric state. Never interpolate Q1–Q7.
-    state.result=response.result;state.aftermath=response.aftermath;state.appeals=response.appeals;state.busy=false;render();showDrawer('results');
+    state.city.finish();state.result=response.result;state.aftermath=response.aftermath;state.appeals=response.appeals;state.busy=false;render();if(state.drawer!=='pulse')showDrawer('results');
   }catch(error){if(revision!==state.revision)return;state.busy=false;state.quarter=0;render();toast(error.message);}
 }
 async function findAlternative(){
   if(!state.result||state.busy||state.alternativeBusy)return;
   const revision=state.revision;state.alternativeBusy=true;renderDrawer();$('comparison-details').open=true;
-  try{const value=await api('/api/alternative',{plan:state.plan});if(revision!==state.revision)return;if(!value.available){toast('Допустимых замен не найдено');return;}state.alternative=value;state.branch='alternative';state.snapshot='after';state.answer='';state.feedback='';render();if($('comparison-details'))$('comparison-details').open=true;}
+  try{const value=await api('/api/alternative',{plan:state.plan});if(revision!==state.revision)return;if(!value.available){toast('Допустимых замен не найдено');return;}value.city=new CityPulse(value.city);value.city.finish();state.alternative=value;state.branch='alternative';state.branchRevision++;state.snapshot='after';state.answer='';state.feedback='';render();enrichCity(value.city,structuredClone(value.plan),'final');if($('comparison-details'))$('comparison-details').open=true;}
   catch(error){toast(error.message);}finally{if(revision===state.revision){state.alternativeBusy=false;if($('alternative')){$('alternative').disabled=false;$('alternative').textContent='Найти альтернативу ↗';}}}
 }
 async function generateAI(kind){
@@ -190,6 +230,7 @@ async function generateAI(kind){
 }
 function openRelevantDecisions(key,name=state.district){
   state.district=name;
+  state.relevant=key;
   const match=Object.values(state.data.measures).find(m=>(m.effects[key]||0)>0);
   state.filter=match?.direction||'Все';showDrawer('decisions');
 }
@@ -223,10 +264,10 @@ function bindEvents(){
     if(d.problem){state.problem=d.problem;renderInspector();return;}
     if(d.resolve)return openRelevantDecisions(d.resolve);
     if(d.advisorDecisions)return openRelevantDecisions(d.advisorDecisions,d.district);
-    if('districtDecisions' in d){state.filter='Все';return showDrawer('decisions');}
-    if(d.filter){state.filter=d.filter;return renderDrawer();}
+    if('districtDecisions' in d){state.filter='Все';state.relevant=null;return showDrawer('decisions');}
+    if(d.filter){state.filter=d.filter;state.relevant=null;return renderDrawer();}
     if(d.ai)return generateAI(d.ai);
-    if(d.branch){state.branch=d.branch;state.snapshot='after';state.answer='';state.feedback='';render();$('comparison-details').open=true;return;}
+    if(d.branch){state.branch=d.branch;state.branchRevision++;state.snapshot='after';state.answer='';state.feedback='';render();enrichCity(currentCity(),structuredClone(currentPlan()),'final');$('comparison-details').open=true;return;}
     if(d.snapshot){state.snapshot=d.snapshot;render();return;}
     if(button.id==='alternative')return findAlternative();
     if(button.id==='feedback'){state.answer=$('press-answer').value.trim();if(!state.answer)return toast('Сначала напишите ответ.');return generateAI('feedback');}
@@ -241,9 +282,9 @@ function bindEvents(){
   $('export').onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify(currentPlan(),null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='astana-plan.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);hideSmallMenus();};
 }
 async function init(){
-  state.data=await api('/api/catalog');state.appeals=state.data.appeals;
+  state.data=await api('/api/catalog');state.appeals=state.data.appeals;state.city=new CityPulse(state.data.city);
   $('district-options').innerHTML=districts.map(d=>`<button data-focus-district="${d.id}">${esc(d.backendName)}</button>`).join('');
-  map=new MapAdapter($('city-map'),{district:selectDistrict,issue:selectIssue,project:(id,name)=>{if(name)state.district=name;state.filter=state.data.measures[id].direction;showDrawer('decisions');},status:mapStatus});
+  map=new MapAdapter($('city-map'),{district:selectDistrict,issue:selectIssue,project:(id,name)=>{if(name)state.district=name;state.relevant=null;state.filter=state.data.measures[id].direction;showDrawer('decisions');},status:mapStatus});
   bindEvents();
   try{const saved=JSON.parse(localStorage.getItem('akim-map-plan-v1')||'null');if(Array.isArray(saved)&&saved.length<=5&&saved.every(s=>s&&Object.hasOwn(state.data.measures,s.measure_id)&&Object.keys(s).every(k=>['measure_id','district'].includes(k))&&(state.data.measures[s.measure_id].scope==='Город'?s.district==null:Object.hasOwn(state.data.districts,s.district||''))))state.plan=saved;}catch(_){}
   await changed();document.body.dataset.ready='true';

@@ -91,6 +91,32 @@ class WebTests(unittest.TestCase):
         self.assertEqual(status, 422)
         self.assertNotIn("result", json.loads(content))
 
+    def test_event_api_recomputes_facts_and_preserves_branch(self):
+        plan = CitySimulator.example_plan()
+        status, content, _ = self.request("/api/simulate", {"plan": plan})
+        main = json.loads(content)["city"]
+        self.assertEqual(main["branch"], "main")
+        self.assertEqual(len(main["events"]), len({e["event_id"] for e in main["events"]}))
+        status, content, _ = self.request("/api/events/context", {"plan": plan[:1], "value": 999})
+        context = json.loads(content)
+        self.assertEqual(status, 200)
+        self.assertIsNone(context["final"])
+        self.assertEqual(context["initial"]["advisor"]["priority"]["value"], 35)
+        self.assertEqual(self.request("/api/events/context", {"plan": plan[:1], "stage": "final"})[0], 422)
+        self.assertEqual(self.request("/api/events/context", {"plan": [], "branch": "forged"})[0], 400)
+        self.assertEqual(self.request("/api/events/wording", {"event_ids": ["forged"]})[0], 400)
+        with patch("event_wording.configured", return_value=False):
+            status, content, _ = self.request("/api/events/wording", {"plan": plan, "stage": "final",
+                "run_id": main["run_id"], "branch": main["branch"], "value": 999})
+        response = json.loads(content)
+        self.assertEqual(status, 200)
+        self.assertEqual(response["run_id"], main["run_id"])
+        self.assertTrue(all(i["source"] == "template" for i in response["items"]))
+        status, content, _ = self.request("/api/alternative", {"plan": plan})
+        alt = json.loads(content)["city"]
+        self.assertEqual(alt["branch"], "alternative")
+        self.assertNotEqual(alt["run_id"], main["run_id"])
+
     def test_comparison_uses_recalculated_plans(self):
         first = CitySimulator.example_plan()
         second = CitySimulator.example_plan()

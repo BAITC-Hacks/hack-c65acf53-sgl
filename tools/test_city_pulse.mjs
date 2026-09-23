@@ -1,0 +1,31 @@
+/** State transitions and stale wording without a browser or external services. */
+import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+import {CityPulse} from '../static/city-pulse.js';
+const bundle=JSON.parse(execFileSync('python',['-c',
+  'import json; from city_simulator import CitySimulator; from city_events import event_bundle; p=CitySimulator.example_plan(); print(json.dumps(event_bundle(p,CitySimulator().simulate(p),"test")))'],{encoding:'utf8'}));
+const city=new CityPulse(bundle),initial=JSON.stringify(city.events);
+assert.equal(city.events.length,10);
+assert.equal(city.unread,10);city.markRead();assert.equal(city.unread,0);
+city.publish(1);assert.equal(city.unread,0);
+city.publish(2);assert.equal(city.unread,2);
+city.publish(2);assert.equal(city.unread,2,'Repeated publication deduplicates');
+assert.equal(city.current.issues.find(i=>i.id==='nura:S2').value,35);
+city.publish(8);assert.equal(city.quarter,7,'Publishing time alone cannot reveal final state');
+assert.ok(city.events.every(e=>e.quarter<8));
+city.finish();assert.equal(city.current.issues.find(i=>i.id==='nura:S2').value,43.75);
+assert.equal(JSON.stringify(city.bundle.events.filter(e=>e.quarter===0).sort((a,b)=>a.event_id.localeCompare(b.event_id))),initial);
+const e=city.events[0],patch={run_id:city.runId,branch:city.branch,items:[{event_id:e.event_id,message:e.allowed_messages[1],source:'ai'}]};
+assert.equal(city.applyWording({...patch,run_id:'old'}),false);
+assert.equal(city.applyWording({...patch,branch:'alternative'}),false);
+assert.equal(city.applyWording({...patch,items:[{...patch.items[0],event_id:'wrong'}]}),false);
+assert.equal(city.applyWording({...patch,items:[{...patch.items[0],message:'Invented fact'}]}),false);
+assert.equal(city.applyWording(patch),true);
+assert.equal(city.text(e).message,e.allowed_messages[1]);
+assert.equal(city.bundle.events.find(v=>v.event_id===e.event_id).message,e.message,'Facts/history unchanged');
+const altBundle=structuredClone(bundle);altBundle.branch='alternative';
+const alt=new CityPulse(altBundle);assert.equal(alt.applyWording(patch),false);
+assert.equal(alt.unread,10);assert.equal(alt.current.issues.find(i=>i.id==='nura:S2').value,35);
+city.markRead();assert.equal(city.unread,0);assert.equal(alt.unread,10,'Read state is branch local');
+assert.equal(new CityPulse(bundle,city).unread,0,'Read baseline concerns are not re-announced on a new draft');
+console.log('PASS pulse timing, deduplication, immutable history, unread, branch isolation and stale AI guards');

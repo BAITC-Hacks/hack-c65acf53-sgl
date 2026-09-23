@@ -15,8 +15,6 @@ from presentation import INDICATORS
 DISTRICT_IDS = {"Есиль": "yesil", "Алматы": "almaty", "Сарыарка": "saryarka",
                 "Байконур": "baikonur", "Нура": "nura"}
 CATEGORIES = dict(zip("TESBC", ("transport", "ecology", "social", "safety", "services")))
-SEVERITY_LABELS = {"critical": "Критическая проблема", "high": "Высокий приоритет",
-                   "attention": "Требует внимания", "normal": "В пределах нормы модели"}
 # These appeals describe a modeled concern, not a real complaint or statistic.
 CONCERNS = {
     "T1": "Хотелось бы, чтобы по району было удобнее передвигаться.",
@@ -70,11 +68,16 @@ def draft_plan(plan):
     return selections
 
 
-def related_projects(name, code, plan, positive_only=False):
-    return sorted(s["measure_id"] for s in plan
+def related_projects(name, code, plan, positive_only=False, result=None):
+    related = {s["measure_id"] for s in plan
                   if (s.get("district") == name or MEASURES[s["measure_id"]].scope == "Город")
                   and (MEASURES[s["measure_id"]].effects.get(code, 0) > 0 if positive_only
-                       else MEASURES[s["measure_id"]].effects.get(code, 0) != 0))
+                       else MEASURES[s["measure_id"]].effects.get(code, 0) != 0)}
+    if result:
+        for synergy in result["synergies"]:
+            if synergy["district"] == name and synergy["effects"].get(code, 0) != 0:
+                related.update(synergy["pair"])
+    return sorted(related)
 
 
 def detect_issues(result=None, plan=()):
@@ -86,7 +89,7 @@ def detect_issues(result=None, plan=()):
             if value >= 60:
                 continue
             before = district.indicators[code]
-            related = related_projects(name, code, plan)
+            related = related_projects(name, code, plan, result=result)
             issues.append({"id": f"{DISTRICT_IDS[name]}:{code}", "district": name,
                            "indicator": code, "indicator_code": code, "title": INDICATORS[code],
                            "category": CATEGORIES[code[0]], "severity": severity(value),
@@ -139,6 +142,8 @@ def wording_variants(event):
     message = event["message"]
     if event["event_type"] == "activation":
         return [message, message.replace("Начинает работать", "В модели начинает действовать", 1)]
+    if event["event_type"] == "resident_complaint":
+        return [message, f"Нас волнует тема «{event['title']}». Хотелось бы уделить ей больше внимания."]
     return [message, "В учебной модели: " + message[0].lower() + message[1:]]
 
 
@@ -152,6 +157,7 @@ def event_bundle(plan=(), result=None, run_id="initial", branch="main"):
         event = {"event_id": event_id, "run_id": run_id, "branch": branch, "quarter": quarter,
                  "event_type": event_type, "is_synthetic": True, "message": message,
                  "source": "template", **facts}
+        event["project_names"] = [MEASURES[key].name for key in event.get("related_projects", [])]
         event["allowed_messages"] = wording_variants(event)
         events.setdefault(event_id, event)
 
@@ -183,7 +189,7 @@ def event_bundle(plan=(), result=None, run_id="initial", branch="main"):
                 add(f"q8:{issue_id}", 8, "reaction" if delta else "remaining_problem", message,
                     district=name, indicator=code, title=INDICATORS[code], category=CATEGORIES[code[0]],
                     severity=severity(value), before=before, value=value, delta=delta,
-                    trend=trend, related_projects=related_projects(name, code, plan),
+                    trend=trend, related_projects=related_projects(name, code, plan, result=result),
                     issue_id=issue_id, source_basis="final")
     # Advisor wording has the same contract/cache, but is not a historical event.
     for stage in [baseline] + ([final] if final else []):
@@ -192,7 +198,9 @@ def event_bundle(plan=(), result=None, run_id="initial", branch="main"):
             advice["wording"] = {"event_id": f"{run_id}:{branch}:advisor:{advice['basis']}:{scope}",
                 "run_id": run_id, "branch": branch, "event_type": "advisor", "message": advice["message"],
                 "source_basis": advice["basis"], "district": p["district"] if p else None,
-                "title": p["title"] if p else None, "severity": p["severity"] if p else "normal"}
+                "title": p["title"] if p else None, "severity": p["severity"] if p else "normal",
+                "category": p["category"] if p else None, "before": p["before"] if p else None,
+                "value": p["value"] if p else None}
             advice["wording"]["allowed_messages"] = wording_variants(advice["wording"])
     return {"run_id": run_id, "branch": branch, "initial": baseline, "final": final,
             "events": sorted(events.values(), key=lambda e: (e["quarter"], e["event_id"]))}

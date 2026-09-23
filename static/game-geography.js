@@ -17,6 +17,6 @@ export const districtGeoJSON={type:'FeatureCollection',features:districts.map(d=
 export function representativePosition(name,index=0,kind='issue'){
   const d=districtByName[name];
   if(!d)return [71.443+index*.007,51.163];
-  const offsets=kind==='project'?[[-.012,-.009],[.002,-.010],[.014,-.006],[-.010,-.015],[.006,-.015]]:[[-.012,.003],[.012,.001]];
+  const offsets=kind==='project'?[[-.012,-.009],[.002,-.010],[.014,-.006],[-.010,-.015],[.006,-.015]]:[[-.012,.003],[.012,.001],[0,.013],[-.017,.016]];
   const [x,y]=offsets[index%offsets.length];return [d.center[0]+x,d.center[1]+y];
 }

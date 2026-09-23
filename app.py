@@ -10,6 +10,8 @@ from presentation import INDICATORS, PROFILES, compare, explain
 from reports import configured, generate_report
 from city_game import appeals, aftermath, alternative
 from game_ai import narrative
+from city_events import event_bundle, draft_plan, identity
+from event_wording import enrich
 
 STATIC = Path(__file__).parent / "static"
 
@@ -24,6 +26,7 @@ def catalog():
                            "scaled_effects": CitySimulator.scaled_effects(key)} for key, m in MEASURES.items()},
         "example": CitySimulator.example_plan(), "ai_available": configured(),
         "appeals": appeals(),
+        "city": event_bundle(),
         "baseline": CitySimulator.calculate_scores({name: d.indicators for name, d in DISTRICTS.items()}),
     }
 
@@ -51,6 +54,7 @@ class Handler(BaseHTTPRequestHandler):
                  "/map-adapter.js": ("map-adapter.js", "text/javascript"),
                  "/map-provider.js": ("map-provider.js", "text/javascript"),
                  "/game-geography.js": ("game-geography.js", "text/javascript"),
+                 "/city-pulse.js": ("city-pulse.js", "text/javascript"),
                  "/vendor/maplibre/maplibre-gl-csp.js": ("vendor/maplibre/maplibre-gl-csp.js", "text/javascript"),
                  "/vendor/maplibre/maplibre-gl-csp-worker.js": ("vendor/maplibre/maplibre-gl-csp-worker.js", "text/javascript"),
                  "/vendor/maplibre/maplibre-gl.css": ("vendor/maplibre/maplibre-gl.css", "text/css"),
@@ -66,7 +70,7 @@ class Handler(BaseHTTPRequestHandler):
         if origin and origin != "http://" + self.headers.get("Host", ""):
             return self.send(403, {"error": "Недопустимый источник запроса"})
         path = urlsplit(self.path).path
-        if path not in {"/api/simulate", "/api/compare", "/api/report", "/api/alternative", "/api/validate", "/api/ai/appeals", "/api/ai/result", "/api/ai/feedback"}:
+        if path not in {"/api/simulate", "/api/compare", "/api/report", "/api/alternative", "/api/validate", "/api/ai/appeals", "/api/ai/result", "/api/ai/feedback", "/api/events/context", "/api/events/wording"}:
             return self.send(404, {"error": "Не найдено"})
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -86,6 +90,16 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 raise ValueError("Ожидается JSON-объект")
             sim = CitySimulator()
+            if path in {"/api/events/context", "/api/events/wording"}:
+                run_id, branch = identity(body.get("run_id"), body.get("branch", "main"))
+                plan = draft_plan(body.get("plan", []))
+                stage = body.get("stage", "baseline")
+                if stage not in ("baseline", "final"):
+                    raise ValueError("Неизвестное состояние")
+                # Never trust client numeric facts. A final context requires a valid full plan.
+                verified = sim.simulate(plan) if stage == "final" else None
+                bundle = event_bundle(plan, verified, run_id, branch)
+                return self.send(200, enrich(bundle, body.get("event_ids")) if path.endswith("wording") else bundle)
             if path == "/api/ai/appeals" and not body.get("plan"):
                 return self.send(200, narrative("appeals"))
             if path == "/api/validate":
@@ -93,9 +107,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {"valid": True, "appeals": appeals(plan=[{"measure_id": s.measure_id, "district": s.district} for s in selections])})
             result = sim.simulate(body.get("plan"))
             if path == "/api/simulate":
-                return self.send(200, {"result": result, "report": explain(result), "appeals": appeals(result), "aftermath": aftermath(result)})
+                run_id, branch = identity()
+                return self.send(200, {"result": result, "report": explain(result), "appeals": appeals(result), "aftermath": aftermath(result),
+                                       "city": event_bundle(body["plan"], result, run_id, branch)})
             if path == "/api/alternative":
-                return self.send(200, alternative(body["plan"]))
+                value = alternative(body["plan"])
+                if value["available"]:
+                    run_id, branch = identity(branch="alternative")
+                    value["city"] = event_bundle(value["plan"], value["result"], run_id, branch)
+                return self.send(200, value)
             if path.startswith("/api/ai/"):
                 answer = body.get("answer", "")
                 if not isinstance(answer, str) or len(answer) > 3000:

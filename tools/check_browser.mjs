@@ -30,8 +30,9 @@ try{
   assert.equal(await evaluate("document.querySelector('#all-metrics').open"),false);
   await click('#all-metrics summary');assert.equal(await evaluate("document.querySelector('#all-metrics').open"),true);
   await click('[data-problem="S1"]');await click('[data-resolve="S1"]');
-  assert.equal(await evaluate("document.querySelectorAll('.initiative').length"),3);
+  assert.equal(await evaluate("document.querySelectorAll('.initiative').length"),2);
   await click('[data-add="M7"]');assert.equal(await text('#budget'),'76');
+  await click('[data-filter="Соцсфера"]');
   await click('[data-add="M8"]');
   await click('[data-filter="Безопасность"]');await click('[data-add="M10"]');
   await click('[data-filter="Сервисы"]');await click('[data-add="M12"]');
@@ -72,10 +73,10 @@ try{
   const alternative=await text('#score');await click('button[data-branch="mine"]');assert.equal(await text('#score'),'56,54');
   await click('button[data-branch="alternative"]');assert.equal(await text('#score'),alternative);
   await click('button[data-branch="mine"]');
-  await click('#navigation [data-view="pulse"]');assert.equal(await evaluate("document.querySelectorAll('.appeal-card').length"),10);
+  await click('#navigation [data-view="pulse"]');assert.ok(await evaluate("document.querySelectorAll('.appeal-card').length")>15);
   assert.equal(await evaluate("document.querySelector('#pulse-unread').hidden"),true);
   await click('#advisor');assert.equal(await evaluate("document.querySelector('#drawer').hidden&&!document.querySelector('#advisor-panel').hidden"),true);
-  await click('#advisor-close');console.log('PASS alternatives, pulse snapshots, single contextual advisor');
+  await click('#advisor-close');console.log('PASS alternatives, pulse history, single contextual advisor');
 
   await menu('#example');await wait("!document.querySelector('#simulate').disabled");
   await click('[data-remove="M5"]');await click('[data-filter="Экология"]');
