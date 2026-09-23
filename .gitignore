@@ -1,3 +1,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.env
+.chrome-profile/
+.chrome-profile-map/
+.browser-check/

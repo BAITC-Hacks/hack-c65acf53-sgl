@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#102725"><title>Аким на 5 часов — оперативная карта</title><link rel="stylesheet" href="/style.css"><script src="/app.js" type="module"></script></head>
+<body>
+<header class="command-header">
+  <a href="/" class="brand"><span class="brand-symbol">A<span>↗</span></span><span>АКИМ<small>НА 5 ЧАСОВ</small></span></a>
+  <div class="station"><i class="signal"></i><span>АСТАНА<small>ЦЕНТР ГОРОДСКИХ РЕШЕНИЙ</small></span></div>
+  <div class="header-stat"><span>КАЧЕСТВО ЖИЗНИ</span><strong id="score">52,56</strong><small id="score-delta">БАЗОВЫЙ SCORE</small></div>
+  <div class="header-stat"><span>БЮДЖЕТ</span><strong id="budget">0 <em>/ 100</em></strong><div class="budget-track"><i id="budget-bar"></i></div></div>
+  <div class="header-stat decisions-stat"><span>РЕШЕНИЯ</span><strong id="count">0 <em>/ 5</em></strong><small>ГОРОДСКИХ ПРОЕКТОВ</small></div>
+  <button id="example" class="subtle">Демо-план ↗</button><button id="help" class="icon-button" aria-label="Как играть">?</button>
+</header>
+<div class="app-shell">
+  <nav class="rail" aria-label="Разделы"><button class="rail-button active" data-view="map" title="Карта города"><span>⌖</span><small>КАРТА</small></button><button class="rail-button" data-view="appeals" title="Журнал обращений"><span>☷</span><small>ЖУРНАЛ</small><b id="appeal-count">10</b></button><button class="rail-button" data-view="initiatives" title="Городские инициативы"><span>▧</span><small>ПРОЕКТЫ</small></button><button class="rail-button" data-view="results" title="Итоги и пресс-конференция"><span>◴</span><small>ИТОГИ</small></button><div class="rail-spacer"></div><button id="reset" class="rail-button" title="Новый план"><span>↺</span><small>ЗАНОВО</small></button><span class="rail-id">AKM<br>01</span></nav>
+  <main class="command-main">
+    <div class="operation-bar"><div><span class="eyebrow">ОПЕРАЦИЯ /</span><strong id="phase-title">Город ждёт ваших решений</strong></div><div class="operation-meta"><span class="status-dot"></span><span id="phase-label">ПЛАНИРОВАНИЕ</span><span class="divider">/</span><span>8 КВАРТАЛОВ</span></div></div>
+    <div class="city-workspace">
+      <section class="map-frame" aria-label="Интерактивная карта Астаны">
+        <div class="map-topline"><div><span class="eyebrow">СИТУАЦИОННАЯ КАРТА</span><h1>Астана<span> / 01</span></h1></div><div class="map-layers"><button id="issues-toggle" class="chip active" aria-pressed="true">● Проблемы</button><button id="projects-toggle" class="chip active" aria-pressed="true">◇ Проекты</button></div></div>
+        <svg id="city-map" viewBox="0 0 1200 760" role="group" aria-label="Пять игровых районов Астаны. Выберите район или маркер проблемы."></svg>
+        <div id="map-tooltip" class="map-tooltip" hidden></div><div class="map-compass" aria-hidden="true"><span>N</span><b>↑</b><small>51°10′ N<br>71°26′ E</small></div>
+        <div class="map-controls"><button id="zoom-in" aria-label="Приблизить карту">+</button><button id="zoom-out" aria-label="Отдалить карту">−</button><button id="zoom-reset" aria-label="Показать весь город">⌖</button></div>
+        <div class="map-footer"><span><i></i> Симуляционная карта города</span><span class="map-hint">Клик — изучить · Колесо — масштаб · Перетаскивание — обзор</span></div><div id="map-toast" class="map-toast" role="status" aria-live="polite" hidden></div>
+        <div id="drawer" class="drawer" hidden><div class="drawer-top"><h2 id="drawer-title">Журнал обращений</h2><button id="drawer-close" class="icon-button" aria-label="Закрыть панель">×</button></div><div id="drawer-content"></div></div><div class="map-scan" aria-hidden="true"></div>
+      </section>
+      <aside class="inspector" aria-label="Информация о районе"><div class="inspector-heading"><span class="eyebrow">ДОСЬЕ РАЙОНА</span><span id="district-id">05 / 05</span></div><div id="inspector-content"></div></aside>
+    </div>
+    <section class="timeline-bar" aria-label="Временная шкала"><div class="timeline-label"><span class="status-dot"></span><span id="time-label">ПЛАНИРОВАНИЕ</span></div><div id="quarters" class="quarters"></div><span class="timeline-note" id="timeline-note">Горизонт — 2 года</span></section>
+    <section class="project-dock" aria-label="Пять выбранных решений"><div class="dock-heading"><h2>Ваши пять решений <span>Разместите проекты на карте города</span></h2><div class="dock-tools"><button id="import" class="text-button">Импорт</button><button id="export" class="text-button" disabled>Экспорт ↗</button><input id="file" type="file" accept=".json,application/json" hidden></div></div><div class="dock-body"><div id="project-slots" class="project-slots"></div><div class="launch-panel"><p id="plan-status" role="status" aria-live="polite">Выберите 5 мероприятий</p><button id="simulate" class="launch" disabled><span>▶</span> Запустить симуляцию</button><small id="launch-note">Одинаковый бюджет. Ваш выбор.</small></div></div></section>
+    <footer><span>ASTANA INNOVATIONS <b>×</b> HACKALEM</span><span>Учебная модель · Синтетические обращения</span><span id="connection">● ЛОКАЛЬНЫЙ СЕРВЕР</span></footer>
+  </main>
+</div>
+<dialog id="help-dialog"><div class="dialog-heading"><h2>Ваш город. Пять решений.</h2><button id="help-close" class="icon-button" aria-label="Закрыть справку">×</button></div><p>Изучите подсвеченные проблемы на карте. Откройте район или обращение, затем выберите инициативы. На карте показан небольшой стилизованный фрагмент Астаны с условными игровыми границами.</p><ol><li>Выберите ровно 5 разных мер, максимум 2 одного направления.</li><li>Уложитесь в 100 единиц. Для районной меры укажите район.</li><li>Запустите симуляцию: проекты включаются после своего лага.</li><li>Изучите результат, реакции жителей и альтернативную временную линию.</li></ol><p>Анимация кварталов иллюстрирует запуск проектов. Официальный Score рассчитывается только для конечного горизонта — 8 кварталов.</p><p class="muted">M1 и M3 несовместимы везде; M4/M7 и M5/M13 — в одном районе. Все обращения и реакции синтетические. Это не прогноз реальной Астаны.</p></dialog>
+</body></html>
