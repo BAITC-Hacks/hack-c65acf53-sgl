@@ -58,6 +58,21 @@ class WebTests(unittest.TestCase):
         self.assertEqual(len(value["appeals"]), 10)
         self.assertEqual(len(value["aftermath"]["citizen_reactions"]), 5)
 
+    def test_map_assets_and_scoped_csp(self):
+        """The CSP worker must be executable; no arbitrary workspace file serving."""
+        for path in ("/theme.js", "/map-adapter.js", "/map-provider.js", "/game-geography.js",
+                     "/vendor/maplibre/maplibre-gl-csp.js", "/vendor/maplibre/maplibre-gl-csp-worker.js"):
+            status, content, headers = self.request(path)
+            self.assertEqual(status, 200)
+            self.assertIn("text/javascript", headers["Content-Type"])
+            self.assertGreater(len(content), 100)
+            policy = headers["Content-Security-Policy"]
+            self.assertIn("worker-src 'self'", policy)
+            self.assertIn("connect-src 'self' https://tiles.openfreemap.org;", policy)
+            self.assertIn("script-src 'self';", policy)
+        for path in ("/vendor/../app.py", "/vendor/maplibre/../../reports.py", "/.env"):
+            self.assertEqual(self.request(path)[0], 404)
+
     def test_game_endpoints(self):
         plan = CitySimulator.example_plan()
         self.assertEqual(self.request("/api/validate", {"plan": plan})[0], 200)

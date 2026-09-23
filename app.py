@@ -36,7 +36,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self'; connect-src 'self' https://tiles.openfreemap.org; img-src 'self' data: blob: https://tiles.openfreemap.org; frame-ancestors 'none'; base-uri 'none'")
         self.end_headers()
         self.wfile.write(body)
 
@@ -46,7 +46,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, catalog())
         files = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
                  "/city-map.js": ("city-map.js", "text/javascript"),
-                 "/style.css": ("style.css", "text/css")}
+                 "/style.css": ("style.css", "text/css"),
+                 "/theme.js": ("theme.js", "text/javascript"),
+                 "/map-adapter.js": ("map-adapter.js", "text/javascript"),
+                 "/map-provider.js": ("map-provider.js", "text/javascript"),
+                 "/game-geography.js": ("game-geography.js", "text/javascript"),
+                 "/vendor/maplibre/maplibre-gl-csp.js": ("vendor/maplibre/maplibre-gl-csp.js", "text/javascript"),
+                 "/vendor/maplibre/maplibre-gl-csp-worker.js": ("vendor/maplibre/maplibre-gl-csp-worker.js", "text/javascript"),
+                 "/vendor/maplibre/maplibre-gl.css": ("vendor/maplibre/maplibre-gl.css", "text/css"),
+                 "/vendor/maplibre/LICENSE.txt": ("vendor/maplibre/LICENSE.txt", "text/plain")}
         if path not in files:
             return self.send(404, {"error": "Не найдено"})
         filename, kind = files[path]

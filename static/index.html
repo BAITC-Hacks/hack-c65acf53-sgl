@@ -1,34 +1,33 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#102725"><title>Аким на 5 часов — оперативная карта</title><link rel="stylesheet" href="/style.css"><script src="/app.js" type="module"></script></head>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#f7f6f2"><title>Аким — ваша Астана</title>
+<link rel="icon" href="data:,"><script src="/theme.js"></script><link rel="stylesheet" href="/vendor/maplibre/maplibre-gl.css"><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script>
+</head>
 <body>
-<header class="command-header">
-  <a href="/" class="brand"><span class="brand-symbol">A<span>↗</span></span><span>АКИМ<small>НА 5 ЧАСОВ</small></span></a>
-  <div class="station"><i class="signal"></i><span>АСТАНА<small>ЦЕНТР ГОРОДСКИХ РЕШЕНИЙ</small></span></div>
-  <div class="header-stat"><span>КАЧЕСТВО ЖИЗНИ</span><strong id="score">52,56</strong><small id="score-delta">БАЗОВЫЙ SCORE</small></div>
-  <div class="header-stat"><span>БЮДЖЕТ</span><strong id="budget">0 <em>/ 100</em></strong><div class="budget-track"><i id="budget-bar"></i></div></div>
-  <div class="header-stat decisions-stat"><span>РЕШЕНИЯ</span><strong id="count">0 <em>/ 5</em></strong><small>ГОРОДСКИХ ПРОЕКТОВ</small></div>
-  <button id="example" class="subtle">Демо-план ↗</button><button id="help" class="icon-button" aria-label="Как играть">?</button>
+<a class="skip-link" href="#navigation">К управлению городом</a>
+<main id="city" aria-label="Симулятор Астаны">
+<div id="city-map" aria-label="Карта Астаны"></div><div class="map-vignette" aria-hidden="true"></div>
+<header class="status-bar glass">
+<a href="/" class="brand" aria-label="Аким — начало"><span class="brand-mark">A<span>↗</span></span><span>АКИМ<small>АСТАНА</small></span></a>
+<div class="status-metric"><strong id="score">—</strong><span>Качество жизни</span></div>
+<div class="status-metric"><strong id="budget">100</strong><span>Бюджет <small>осталось</small></span></div>
+<button class="status-metric status-decisions" data-view="decisions" aria-label="Открыть решения"><strong id="count">0 <small>/ 5</small></strong><span>Решения</span></button>
+<div class="header-tools"><button id="theme" class="icon-button" aria-label="Сменить тему" title="Сменить тему">☾</button><button id="menu-toggle" class="icon-button" aria-label="Меню" aria-expanded="false" aria-controls="menu">···</button></div>
 </header>
-<div class="app-shell">
-  <nav class="rail" aria-label="Разделы"><button class="rail-button active" data-view="map" title="Карта города"><span>⌖</span><small>КАРТА</small></button><button class="rail-button" data-view="appeals" title="Журнал обращений"><span>☷</span><small>ЖУРНАЛ</small><b id="appeal-count">10</b></button><button class="rail-button" data-view="initiatives" title="Городские инициативы"><span>▧</span><small>ПРОЕКТЫ</small></button><button class="rail-button" data-view="results" title="Итоги и пресс-конференция"><span>◴</span><small>ИТОГИ</small></button><div class="rail-spacer"></div><button id="reset" class="rail-button" title="Новый план"><span>↺</span><small>ЗАНОВО</small></button><span class="rail-id">AKM<br>01</span></nav>
-  <main class="command-main">
-    <div class="operation-bar"><div><span class="eyebrow">ОПЕРАЦИЯ /</span><strong id="phase-title">Город ждёт ваших решений</strong></div><div class="operation-meta"><span class="status-dot"></span><span id="phase-label">ПЛАНИРОВАНИЕ</span><span class="divider">/</span><span>8 КВАРТАЛОВ</span></div></div>
-    <div class="city-workspace">
-      <section class="map-frame" aria-label="Интерактивная карта Астаны">
-        <div class="map-topline"><div><span class="eyebrow">СИТУАЦИОННАЯ КАРТА</span><h1>Астана<span> / 01</span></h1></div><div class="map-layers"><button id="issues-toggle" class="chip active" aria-pressed="true">● Проблемы</button><button id="projects-toggle" class="chip active" aria-pressed="true">◇ Проекты</button></div></div>
-        <svg id="city-map" viewBox="0 0 1200 760" role="group" aria-label="Пять игровых районов Астаны. Выберите район или маркер проблемы."></svg>
-        <div id="map-tooltip" class="map-tooltip" hidden></div><div class="map-compass" aria-hidden="true"><span>N</span><b>↑</b><small>51°10′ N<br>71°26′ E</small></div>
-        <div class="map-controls"><button id="zoom-in" aria-label="Приблизить карту">+</button><button id="zoom-out" aria-label="Отдалить карту">−</button><button id="zoom-reset" aria-label="Показать весь город">⌖</button></div>
-        <div class="map-footer"><span><i></i> Симуляционная карта города</span><span class="map-hint">Клик — изучить · Колесо — масштаб · Перетаскивание — обзор</span></div><div id="map-toast" class="map-toast" role="status" aria-live="polite" hidden></div>
-        <div id="drawer" class="drawer" hidden><div class="drawer-top"><h2 id="drawer-title">Журнал обращений</h2><button id="drawer-close" class="icon-button" aria-label="Закрыть панель">×</button></div><div id="drawer-content"></div></div><div class="map-scan" aria-hidden="true"></div>
-      </section>
-      <aside class="inspector" aria-label="Информация о районе"><div class="inspector-heading"><span class="eyebrow">ДОСЬЕ РАЙОНА</span><span id="district-id">05 / 05</span></div><div id="inspector-content"></div></aside>
-    </div>
-    <section class="timeline-bar" aria-label="Временная шкала"><div class="timeline-label"><span class="status-dot"></span><span id="time-label">ПЛАНИРОВАНИЕ</span></div><div id="quarters" class="quarters"></div><span class="timeline-note" id="timeline-note">Горизонт — 2 года</span></section>
-    <section class="project-dock" aria-label="Пять выбранных решений"><div class="dock-heading"><h2>Ваши пять решений <span>Разместите проекты на карте города</span></h2><div class="dock-tools"><button id="import" class="text-button">Импорт</button><button id="export" class="text-button" disabled>Экспорт ↗</button><input id="file" type="file" accept=".json,application/json" hidden></div></div><div class="dock-body"><div id="project-slots" class="project-slots"></div><div class="launch-panel"><p id="plan-status" role="status" aria-live="polite">Выберите 5 мероприятий</p><button id="simulate" class="launch" disabled><span>▶</span> Запустить симуляцию</button><small id="launch-note">Одинаковый бюджет. Ваш выбор.</small></div></div></section>
-    <footer><span>ASTANA INNOVATIONS <b>×</b> HACKALEM</span><span>Учебная модель · Синтетические обращения</span><span id="connection">● ЛОКАЛЬНЫЙ СЕРВЕР</span></footer>
-  </main>
-</div>
-<dialog id="help-dialog"><div class="dialog-heading"><h2>Ваш город. Пять решений.</h2><button id="help-close" class="icon-button" aria-label="Закрыть справку">×</button></div><p>Изучите подсвеченные проблемы на карте. Откройте район или обращение, затем выберите инициативы. На карте показан небольшой стилизованный фрагмент Астаны с условными игровыми границами.</p><ol><li>Выберите ровно 5 разных мер, максимум 2 одного направления.</li><li>Уложитесь в 100 единиц. Для районной меры укажите район.</li><li>Запустите симуляцию: проекты включаются после своего лага.</li><li>Изучите результат, реакции жителей и альтернативную временную линию.</li></ol><p>Анимация кварталов иллюстрирует запуск проектов. Официальный Score рассчитывается только для конечного горизонта — 8 кварталов.</p><p class="muted">M1 и M3 несовместимы везде; M4/M7 и M5/M13 — в одном районе. Все обращения и реакции синтетические. Это не прогноз реальной Астаны.</p></dialog>
+<section id="menu" class="menu glass" hidden aria-label="Меню"><button id="example">Демо-план <span>↗</span></button><button id="import">Импорт плана</button><button id="export" disabled>Экспорт плана</button><button id="reset">Начать заново</button><button id="help">Как играть</button><input id="file" type="file" accept=".json,application/json" hidden></section>
+<div class="city-caption"><span class="eyebrow">ВАШ ГОРОД. ВАШИ РЕШЕНИЯ.</span><h1>Астана<span>.</span></h1><p id="city-subtitle">Пять решений, которые меняют город.</p></div>
+<div class="map-controls glass" role="group" aria-label="Управление картой"><button id="zoom-in" aria-label="Приблизить">+</button><button id="zoom-out" aria-label="Отдалить">−</button><button id="zoom-reset" aria-label="Вся Астана" title="Вся Астана">⌖</button><button id="presentation" aria-label="Включить 3D" aria-pressed="false">3D</button><button id="district-picker-toggle" aria-label="Выбрать район" aria-expanded="false" aria-controls="district-picker">▱</button></div>
+<section id="district-picker" class="district-picker glass" hidden aria-label="Выберите район"><span class="eyebrow">РАЙОНЫ ГОРОДА</span><div id="district-options"></div></section>
+<section id="map-status" class="map-status glass" role="status" hidden><span id="map-status-text">Загружаем карту…</span><div><button id="map-retry" class="text-button" hidden>Повторить</button><button id="map-fallback" class="text-button" hidden>Открыть схему</button></div></section>
+<section id="district-card" class="context-card glass" role="region" aria-labelledby="district-title" hidden><button id="district-close" class="close-button" aria-label="Закрыть район">×</button><div id="district-content"></div></section>
+<section id="drawer" class="drawer glass" role="region" aria-labelledby="drawer-title" hidden><div class="drawer-heading"><div><span class="eyebrow" id="drawer-kicker">ВАШ ГОРОД</span><h2 id="drawer-title">Решения</h2></div><button id="drawer-close" class="icon-button" aria-label="Закрыть панель">×</button></div><div id="drawer-content" class="drawer-content"></div><div id="decision-footer" class="decision-footer" hidden><p id="plan-status" role="status" aria-live="polite">Выберите пять решений</p><button id="simulate" class="primary wide" disabled>Запустить симуляцию <span>↗</span></button><small>Горизонт: 2 года · 8 кварталов</small></div></section>
+<section id="advisor-panel" class="context-card advisor-panel glass" role="region" aria-labelledby="advisor-title" hidden><button id="advisor-close" class="close-button" aria-label="Закрыть советника">×</button><span class="eyebrow">ВЗГЛЯД НА ГОРОД</span><h2 id="advisor-title">Советник</h2><div id="advisor-content"></div></section>
+<section id="playback" class="playback glass" aria-label="Ход симуляции" hidden><div class="playback-head"><span id="time-label">Город меняется</span><span id="phase-label">СИМУЛЯЦИЯ</span></div><div id="quarters" class="quarters"></div><p id="milestone" aria-live="polite"></p><small>Оценка и показатели обновятся в финале.</small></section>
+<div id="map-toast" class="toast glass" role="status" aria-live="polite" hidden></div>
+<nav id="navigation" class="floating-nav glass" aria-label="Разделы"><button class="active" data-view="map" aria-current="page"><span class="nav-icon">⌖</span>Карта</button><button data-view="decisions"><span class="nav-icon">▱</span>Решения</button><button data-view="pulse"><span class="nav-icon">≋</span>Пульс <span id="pulse-unread" class="unread" hidden></span></button><button data-view="results"><span class="nav-icon">↗</span>Итоги</button></nav>
+<button id="advisor" class="advisor-button glass" aria-expanded="false" aria-controls="advisor-panel">✦ <span>Советник</span></button>
+<span class="geography-note" title="Приблизительные игровые сектора, не официальные границы. Маркеры не обозначают реальные адреса.">Условные границы и размещение проектов</span>
+</main>
+<dialog id="help-dialog"><button id="help-close" class="close-button" aria-label="Закрыть справку">×</button><span class="eyebrow">АКИМ НА 5 ЧАСОВ</span><h2>Каким станет ваш город?</h2><ol><li>Выберите район и изучите его проблемы.</li><li>Соберите пять разных решений в пределах 100 единиц бюджета.</li><li>Запустите симуляцию и сравните результат.</li></ol><details><summary>Правила и данные</summary><p>Не более двух мер одного направления. M1 и M3 несовместимы; M4/M7 и M5/M13 — в одном районе.</p><p>Кварталы показывают запуск проектов. Показатели и оценка рассчитываются только для финала. Обращения синтетические. Границы и позиции игровых маркеров приблизительные; реальная карта не меняется от решений.</p></details></dialog>
 </body></html>
