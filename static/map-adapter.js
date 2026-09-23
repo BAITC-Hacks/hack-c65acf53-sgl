@@ -1,6 +1,8 @@
 ﻿import {provider,loadProviderStyle} from './map-provider.js';
 import {districts,districtById,districtByName,districtGeoJSON,representativePosition} from './game-geography.js';
-import {CityMap as LegacyCityMap,icon,measureIcons} from './city-map.js';
+import {CityMap as LegacyCityMap} from './city-map.js';
+import {ProjectVisualizationLayer,PROJECT_SOURCE} from './project-visualization.js';
+import {projectStatus} from './project-geometry.js';
 
 const collection=features=>({type:'FeatureCollection',features});
 const point=(coordinates,properties)=>({type:'Feature',geometry:{type:'Point',coordinates},properties});
@@ -37,18 +39,21 @@ export class MapAdapter{
       const lib=await loadLibrary();if(epoch!==this.epoch)return;
       this.lib=lib;lib.setWorkerUrl(provider.worker);
       this.map=new lib.Map({container:this.container,style:this.emptyStyle(),...provider.camera,attributionControl:false,maxPitch:65,minZoom:9,maxZoom:18,renderWorldCopies:false});
+      this.visuals=new ProjectVisualizationLayer(this.map,{lib,container:this.container,onSelect:(id,name)=>this.callbacks.project(id,name),onHover:id=>this.hoverProject(id)});
       this.container.dataset.renderer='maplibre';
       this.map.addControl(new lib.AttributionControl({compact:true}),'bottom-right');
       this.map.getCanvas().setAttribute('aria-label','Карта Астаны. Для выбора района с клавиатуры используйте кнопку «Выбрать район».');
       this.popup=new lib.Popup({closeButton:false,closeOnClick:false,offset:16});
       this.map.on('style.load',()=>{
         if(this.legacy)return;
+        this.visuals.failed=false;this.visuals.key=null;
         this.installLayers();this.ready=true;this.update(this.state);this.applyPresentation(false);
       });
       this.map.on('click',e=>this.selectAt(e));
       this.map.on('mousemove',e=>this.hoverAt(e));
       this.map.getCanvas().addEventListener('mouseleave',()=>this.clearHover());
-      this.map.on('error',()=>{
+      this.map.on('error',event=>{
+        if(event.sourceId===PROJECT_SOURCE||String(event.error?.message).includes('sim-project')){this.visuals?.fail();return;}
         // A tile/glyph error must never invalidate the plan or UI.
         if(this.hostedStyle){this.tileFailed=true;this.status('error');}
       });
@@ -95,8 +100,6 @@ export class MapAdapter{
       m.addLayer({id:'game-cluster-labels',type:'symbol',source:'game-issues',filter:['has','point_count'],layout:{'text-field':['to-string',['get','point_count_abbreviated']],'text-font':['Noto Sans Regular'],'text-size':11,'text-allow-overlap':true},paint:{'text-color':p['surface-elevated']}});
       m.addLayer({id:'game-issue-labels',type:'symbol',source:'game-issues',filter:['!', ['has','point_count']],layout:{'text-field':'!','text-font':['Noto Sans Regular'],'text-size':11,'text-allow-overlap':true},paint:{'text-color':p['surface-elevated']}});
     }
-    m.addSource('game-project-effects',{type:'geojson',data:collection([])});
-    m.addLayer({id:'game-project-effects',type:'circle',source:'game-project-effects',paint:{'circle-color':p.success,'circle-radius':['interpolate',['linear'],['zoom'],10,13,15,40],'circle-opacity':.1,'circle-stroke-color':p.success,'circle-stroke-opacity':.22,'circle-stroke-width':1}},'game-issues');
     this.selected=null;this.setSelectedDistrict(districtByName[this.state?.district]?.id||null);
   }
   addDistrictLabels(){
@@ -115,7 +118,9 @@ export class MapAdapter{
     if(!this.map||!this.ready)return;
     this.setSelectedDistrict(districtByName[this.state.district]?.id||null);
     this.updateIssueMarkers(this.state.appeals);
-    this.updateProjectMarkers(this.state.plan,this.state.measures,this.state.quarter);
+    this.visuals.update(this.state.plan,this.state.quarter,this.state.result,this.state.measures,{scenario:this.state.scenario,before:this.state.before});
+    this.visuals.select(this.state.project||null);this.visuals.setSummary(this.state.summary);
+    this.highlightIssues(this.state.project);
     this.container.dataset.projectCount=this.state.plan.length;
     this.container.dataset.issueCount=this.state.appeals.length;
   }
@@ -130,23 +135,23 @@ export class MapAdapter{
     const key=JSON.stringify(appeals.map(a=>[a.id,a.severity,a.status,a.value]));if(key===this.issueKey)return;this.issueKey=key;
     const count={};source.setData(collection(appeals.map(a=>{
       const i=count[a.district]||0;count[a.district]=i+1;
-      return point(representativePosition(a.district,i),{id:a.id,district:districtByName[a.district].id,severity:a.severity,status:a.status});
+      return point(representativePosition(a.district,i),{id:a.id,district:districtByName[a.district].id,indicator:a.indicator_code,severity:a.severity,status:a.status});
     })));
   }
-  updateProjectMarkers(plan,measures,quarter){
-    const key=JSON.stringify([plan,quarter]);if(key===this.projectKey)return;this.projectKey=key;
-    this.projects.forEach(marker=>marker.remove());this.projects=[];const counts={},effects=[];let citywide=0;
-    for(const s of plan){
-      const measure=measures[s.measure_id],name=measure.scope==='Город'?null:s.district;if(name&&!districtByName[name])continue;
-      const i=name?(counts[name]||0):citywide++;if(name)counts[name]=i+1;
-      const position=representativePosition(name,i,'project'),active=quarter>measure.lag;
-      const button=document.createElement('button');button.className=`project-marker ${active?'active':'pending'} ${name?'':'citywide'}`;button.innerHTML=icon(measureIcons[s.measure_id]);
-      button.setAttribute('aria-label',`${measure.name} · ${name||'Весь город'} · ${active?'работает':'в плане'}. Условное размещение.`);button.title=button.getAttribute('aria-label');button.dataset.project=s.measure_id;
-      button.onclick=e=>{e.stopPropagation();this.callbacks.project(s.measure_id,name);};
-      this.projects.push(new this.lib.Marker({element:button}).setLngLat(position).addTo(this.map));
-      if(active)effects.push(point(position,{id:s.measure_id}));
-    }
-    this.map.getSource('game-project-effects')?.setData(collection(effects));
+  hoverProject(id){
+    this.highlightIssues(id||this.state?.project);this.visuals?.highlight(id||this.state?.project);
+    const project=this.visuals?.states.find(p=>p.projectId===id);
+    if(!project){this.popup?.remove();return;}
+    const content=document.createElement('div');content.className='project-tooltip';
+    for(const [tag,text] of [['strong',project.name],['span',project.district||'Весь город'],['span',projectStatus(project,this.state.quarter)],['small','Симуляция · условное размещение']]){const el=document.createElement(tag);el.textContent=text;content.append(el);}
+    this.popup.setLngLat(project.coordinates).setDOMContent(content).addTo(this.map);
+  }
+  highlightIssues(id){
+    if(!this.map?.getLayer('game-issues'))return;
+    const project=this.visuals?.states.find(p=>p.projectId===id),p=palette();
+    const affected=project?['all',['in',['get','indicator'],['literal',project.indicators]],project.district?['==',['get','district'],districtByName[project.district].id]:true]:false;
+    this.map.setPaintProperty('game-issues','circle-stroke-width',['case',affected,4,2]);
+    this.map.setPaintProperty('game-issues','circle-stroke-color',['case',affected,p.accent,p['surface-elevated']]);
   }
   selectAt(e){
     if(!this.ready)return;
@@ -155,10 +160,14 @@ export class MapAdapter{
     const cluster=features.find(f=>f.layer.id==='game-clusters');
     if(cluster){this.map.getSource('game-issues').getClusterExpansionZoom(cluster.properties.cluster_id).then(zoom=>this.map?.easeTo({center:cluster.geometry.coordinates,zoom,duration:reduced()?0:450})).catch(()=>{});return;}
     const issue=features.find(f=>f.layer.id==='game-issues');if(issue){this.callbacks.issue(issue.properties.id);return;}
+    const projectId=this.visuals?.hit(e.point);if(projectId){const p=this.visuals.states.find(p=>p.projectId===projectId);this.callbacks.project(projectId,p?.district);return;}
     const district=features.find(f=>f.layer.id==='game-district-fill');if(district)this.callbacks.district(district.properties.id);
   }
   hoverAt(e){
     if(!this.ready||!this.map.getLayer('game-district-fill'))return;
+    const projectId=this.visuals?.hit(e.point);
+    if(projectId){this.map.getCanvas().style.cursor='pointer';this.hoverProject(projectId);return;}
+    this.highlightIssues(this.state?.project);this.visuals?.highlight(this.state?.project);
     const [f]=this.map.queryRenderedFeatures(e.point,{layers:['game-district-fill']});
     const id=f?.properties.id;
     if(id!==this.hovered){this.clearHover();this.hovered=id;if(id)this.map.setFeatureState({source:'game-districts',id},{hover:true});}
@@ -169,7 +178,7 @@ export class MapAdapter{
     const d=districtById[id],score=this.state?.scores.district_scores[d?.backendName];if(score===undefined)return;
     const content=document.createElement('div'),name=document.createElement('strong'),number=document.createElement('span');name.textContent=d.backendName;number.textContent=score.toLocaleString('ru-RU',{maximumFractionDigits:2});content.append(name,number);this.popup.setLngLat(position).setDOMContent(content).addTo(this.map);
   }
-  clearHover(){if(this.hovered&&this.map?.getSource('game-districts'))this.map.setFeatureState({source:'game-districts',id:this.hovered},{hover:false});this.hovered=null;this.popup?.remove();}
+  clearHover(){if(this.hovered&&this.map?.getSource('game-districts'))this.map.setFeatureState({source:'game-districts',id:this.hovered},{hover:false});this.hovered=null;this.popup?.remove();this.highlightIssues(this.state?.project);this.visuals?.highlight(this.state?.project);}
   focusDistrict(id){
     const d=districtById[id];if(!d)return;
     if(this.legacy)return;
@@ -179,6 +188,7 @@ export class MapAdapter{
   applyPresentation(animate){
     if(!this.map)return;
     if(this.map.getLayer('game-buildings'))this.map.setLayoutProperty('game-buildings','visibility',this.presentation==='3d'?'visible':'none');
+    this.visuals?.setPresentationMode(this.presentation);
     this.map.easeTo({pitch:this.presentation==='3d'?52:0,duration:animate&&!reduced()?700:0});
     this.container.dataset.presentation=this.presentation;
   }
@@ -189,7 +199,7 @@ export class MapAdapter{
     if(this.legacy){this.legacy=null;this.container.replaceChildren();this.start();}else if(this.map)this.setTheme(this.theme);else this.start();
   }
   useLegacy(){
-    ++this.epoch;this.controller?.abort();clearTimeout(this.loadTimer);this.resizeObserver?.disconnect();this.popup?.remove();this.projects.forEach(m=>m.remove());this.labels.forEach(l=>l.marker.remove());this.projects=[];this.labels=[];this.map?.remove();this.map=null;this.ready=false;
+    ++this.epoch;this.controller?.abort();clearTimeout(this.loadTimer);this.resizeObserver?.disconnect();this.popup?.remove();this.visuals?.destroy();this.visuals=null;this.labels.forEach(l=>l.marker.remove());this.projects=[];this.labels=[];this.map?.remove();this.map=null;this.ready=false;
     this.container.replaceChildren();const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('legacy-map');svg.setAttribute('viewBox','0 0 1200 760');svg.setAttribute('role','group');svg.setAttribute('aria-label','Схематичная резервная карта');this.container.append(svg);
     this.legacy=new LegacyCityMap(svg,{...this.callbacks,hover:()=>{}});this.container.dataset.renderer='legacy';this.status('legacy');this.update(this.state);
   }

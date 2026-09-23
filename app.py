@@ -55,6 +55,8 @@ class Handler(BaseHTTPRequestHandler):
                  "/map-provider.js": ("map-provider.js", "text/javascript"),
                  "/game-geography.js": ("game-geography.js", "text/javascript"),
                  "/city-pulse.js": ("city-pulse.js", "text/javascript"),
+                 "/project-geometry.js": ("project-geometry.js", "text/javascript"),
+                 "/project-visualization.js": ("project-visualization.js", "text/javascript"),
                  "/vendor/maplibre/maplibre-gl-csp.js": ("vendor/maplibre/maplibre-gl-csp.js", "text/javascript"),
                  "/vendor/maplibre/maplibre-gl-csp-worker.js": ("vendor/maplibre/maplibre-gl-csp-worker.js", "text/javascript"),
                  "/vendor/maplibre/maplibre-gl.css": ("vendor/maplibre/maplibre-gl.css", "text/css"),

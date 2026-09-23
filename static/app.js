@@ -2,6 +2,7 @@
 import {districts, districtById, districtByName} from './game-geography.js';
 import {icon, measureIcons} from './city-map.js';
 import {CityPulse} from './city-pulse.js';
+import {projectStates,projectStatus} from './project-geometry.js';
 
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -14,6 +15,7 @@ const severity=v=>v<40?'critical':v<50?'high':v<60?'medium':'normal';
 const state={data:null,plan:[],district:null,issue:null,problem:null,drawer:'map',context:null,filter:'Все',drafts:{},result:null,aftermath:null,appeals:[],alternative:null,branch:'mine',snapshot:'after',quarter:0,busy:false,revision:0,valid:false,validationError:'',aiBusy:false,alternativeBusy:false,answer:'',feedback:'',presentation:'2d'};
 let map,toastTimer,returnFocus;
 state.city=null;state.relevant=null;state.branchRevision=0;
+state.project=null;state.visualSummary=false;
 const currentResult=()=>state.branch==='alternative'?state.alternative?.result:state.result;
 const currentPlan=()=>state.branch==='alternative'?state.alternative.plan:state.plan;
 const currentAftermath=()=>state.branch==='alternative'?state.alternative.aftermath:state.aftermath;
@@ -68,6 +70,7 @@ function updatePlannedAppeals(){
   state.appeals=state.data.appeals.map(a=>({...a,status:state.plan.some(s=>{const m=state.data.measures[s.measure_id];return m.effects[a.indicator_code]>0&&(m.scope==='Город'||s.district===a.district);})?'planned':'new'}));
 }
 async function changed(){
+  state.project=null;state.visualSummary=false;
   state.revision++;state.result=null;state.aftermath=null;state.alternative=null;state.branch='mine';state.snapshot='after';state.quarter=0;state.valid=false;state.validationError='';state.feedback='';state.answer='';state.alternativeBusy=false;
   state.city=new CityPulse(state.data.city,state.city);updatePlannedAppeals();persist();render();
   const contextRevision=state.revision;
@@ -98,7 +101,6 @@ function renderHeader(){
   $('presentation').textContent=state.presentation==='2d'?'3D':'2D';
   $('presentation').setAttribute('aria-pressed',String(state.presentation==='3d'));
   $('presentation').setAttribute('aria-label',state.presentation==='2d'?'Включить 3D':'Включить 2D');
-  $('playback').hidden=!state.busy;
   $('time-label').textContent=state.quarter?`Квартал ${state.quarter} из 8`:'Готовим симуляцию…';
   $('phase-label').textContent=state.busy?'СИМУЛЯЦИЯ':currentResult()?'РЕЗУЛЬТАТ':'ПЛАНИРОВАНИЕ';
   $('quarters').innerHTML=Array.from({length:8},(_,i)=>`<span class="quarter ${state.quarter>i?'done':''} ${state.quarter===i+1?'current':''}">Q${i+1}</span>`).join('');
@@ -108,23 +110,35 @@ function renderHeader(){
   document.body.dataset.quarter=state.quarter;
   document.body.dataset.snapshot=state.snapshot;
   document.body.dataset.branch=state.branch;
+  renderCompletion();
 }
 function renderMap(){
   const ids=displayedCity().map_issue_ids;
-  map?.update({district:state.district,issue:state.issue,appeals:displayedAppeals().filter(a=>ids.includes(a.id)||a.id===state.issue),plan:showingBefore()?[]:currentPlan(),measures:state.data.measures,scores:displayedResult()?.result||state.data.baseline,quarter:showingBefore()?0:state.quarter,showIssues:true,showProjects:true});
+  map?.update({district:state.district,issue:state.issue,project:state.context==='project'?state.project:null,appeals:displayedAppeals().filter(a=>ids.includes(a.id)||a.id===state.issue),plan:showingBefore()?[]:currentPlan(),measures:state.data.measures,scores:displayedResult()?.result||state.data.baseline,quarter:showingBefore()?0:state.quarter,result:displayedResult(),before:showingBefore(),scenario:currentCity().runId,summary:state.visualSummary&&!showingBefore(),showIssues:true,showProjects:true});
+}
+function renderCompletion(){
+  const r=currentResult(),visible=!!r&&!state.busy&&state.drawer==='map'&&!state.context;
+  $('playback').hidden=!state.busy&&!visible;$('playback').classList.toggle('completed',visible);
+  $('quarters').hidden=!state.busy;$('playback-note').hidden=!state.busy;$('map-comparison').hidden=!visible;
+  if(visible){$('time-label').textContent=`${fmt(r.baseline.score)} → ${fmt(r.result.score)}`;$('phase-label').textContent='ИТОГ Q8';$('milestone').textContent=`${sign(r.score_delta)} к качеству жизни`;
+    for(const b of $('map-comparison').querySelectorAll('[data-snapshot]'))b.setAttribute('aria-pressed',String(b.dataset.snapshot===state.snapshot));
+    $('show-changes').setAttribute('aria-pressed',String(state.visualSummary&&!showingBefore()));
+    $('show-changes').textContent=state.visualSummary&&!showingBefore()?'Обычный вид':'Показать изменения';
+  }
 }
 function hideSmallMenus(){for(const id of ['menu','district-picker'])$(id).hidden=true;$('menu-toggle').setAttribute('aria-expanded','false');$('district-picker-toggle').setAttribute('aria-expanded','false');}
 function syncSurfaces(){
-  $('drawer').hidden=state.drawer==='map';$('district-card').hidden=state.context!=='district';$('advisor-panel').hidden=state.context!=='advisor';
+  $('drawer').hidden=state.drawer==='map';$('district-card').hidden=!['district','project'].includes(state.context);$('advisor-panel').hidden=state.context!=='advisor';
   $('advisor').setAttribute('aria-expanded',String(state.context==='advisor'));
   document.body.classList.toggle('has-overlay',state.drawer!=='map'||!!state.context);
   for(const b of document.querySelectorAll('#navigation [data-view]')){const active=b.dataset.view===state.drawer;b.classList.toggle('active',active);if(active)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');}
+  renderCompletion();
 }
 function showDrawer(name,focus=true){
   returnFocus=document.activeElement;state.drawer=name;state.context=null;hideSmallMenus();syncSurfaces();renderDrawer();
-  renderPulseBadge();if(name!=='map'&&focus)$('drawer-close').focus({preventScroll:true});
+  renderPulseBadge();renderMap();if(name!=='map'&&focus)$('drawer-close').focus({preventScroll:true});
 }
-function closeOverlay(){state.drawer='map';state.context=null;hideSmallMenus();syncSurfaces();if(returnFocus?.isConnected&&!returnFocus.closest('[hidden]'))returnFocus.focus({preventScroll:true});else document.querySelector('#navigation [data-view=map]').focus();}
+function closeOverlay(){state.drawer='map';state.context=null;hideSmallMenus();syncSurfaces();renderMap();if(returnFocus?.isConnected&&!returnFocus.closest('[hidden]'))returnFocus.focus({preventScroll:true});else document.querySelector('#navigation [data-view=map]').focus();}
 function selectDistrict(id){
   const d=districtById[id]||districtByName[id];if(!d)return;
   returnFocus=document.activeElement;state.district=d.backendName;state.issue=null;state.problem=null;state.drawer='map';state.context='district';hideSmallMenus();syncSurfaces();renderMap();renderInspector();map.focusDistrict(d.id);$('district-close').focus({preventScroll:true});
@@ -136,6 +150,7 @@ function selectIssue(id){
 function valuesFor(name){return displayedResult()?.districts[name].after||state.data.districts[name].indicators;}
 function priorityProblems(name){return displayedCity().issues.filter(a=>a.district===name).slice(0,3).map(a=>[a.indicator,a.value]);}
 function renderInspector(){
+  if(state.context==='project')return renderProjectCard();
   if(!state.district)return;
   const name=state.district,r=displayedResult(),d=r?.districts[name],score=d?d.score_after:state.data.baseline.district_scores[name];
   const appeal=displayedAppeals().find(a=>a.district===name&&a.indicator_code===state.problem);
@@ -143,6 +158,17 @@ function renderInspector(){
   $('district-content').innerHTML=`<span class="eyebrow">РАЙОН ГОРОДА</span><div class="district-title-row"><h2 id="district-title">${esc(name)}</h2><div><strong>${fmt(score)}</strong><small>качество жизни</small></div></div><div class="section-caption">Главные проблемы</div>${priorityProblems(name).map(([key,value])=>`<button class="priority-issue" data-problem="${key}"><strong>${esc(state.data.indicators[key])}</strong><b>${fmt(value)}</b><small class="${severity(value)}">${severityNames[severity(value)]}</small><span class="issue-arrow">↗</span></button>`).join('')}
   ${state.problem?`<div class="appeal-detail" data-current-issue="${esc(appeal?.id||'')}"><strong>${esc(state.data.indicators[state.problem])}</strong>${appeal?`<div class="metric-line">${fmt(appeal.value)} / 100 · <span class="${appeal.severity}">${severityNames[appeal.severity]}</span></div><blockquote>«${esc(appeal.message)}»</blockquote><span class="source-label">${appeal.source==='ai'?'AI-текст':'Локальный текст'} · синтетическое обращение</span>`:''}<button class="text-button" data-focus-district="${districtByName[name].id}">Показать район</button><button class="text-button" data-resolve="${state.problem}">Найти решение ↗</button></div>`:''}
   <button class="primary wide" data-district-decisions>Решения для района <span>↗</span></button><details id="all-metrics"><summary>Все показатели</summary>${metrics}<p class="description">${esc(state.data.districts[name].profile)}</p></details>`;
+}
+function selectProject(id,name){
+  if(!currentPlan().some(s=>s.measure_id===id))return;
+  returnFocus=document.activeElement;state.project=id;state.context='project';state.drawer='map';
+  if(name)state.district=name;hideSmallMenus();syncSurfaces();renderMap();renderProjectCard();$('district-close').focus({preventScroll:true});
+}
+function renderProjectCard(){
+  const project=projectStates(currentPlan(),state.data.measures,state.quarter,displayedResult()).find(p=>p.projectId===state.project);
+  if(!project)return;
+  const r=displayedResult(),names=project.district?[project.district]:Object.keys(state.data.districts);
+  $('district-content').innerHTML=`<span class="eyebrow">ПРОЕКТ СИМУЛЯЦИИ</span><h2 id="district-title" class="project-card-title">${esc(project.name)}</h2><p class="description">${esc(project.district||'Весь город')} · ${projectStatus(project,state.quarter)}</p><span class="source-label">Условное размещение. Не реальный объект или маршрут.</span><div class="section-caption">Затрагивает</div>${project.indicators.map(key=>`<p class="project-target">${esc(state.data.indicators[key])}</p>`).join('')}${r?`<details open><summary>Проверенные изменения Q8</summary><p class="source-label">Суммарный результат всех выбранных мер и синергий, не отдельный вклад этого проекта.</p>${names.map(name=>`<div class="project-deltas"><strong>${esc(name)}</strong>${project.indicators.map(key=>`<div class="comparison-row"><span>${esc(state.data.indicators[key])}</span><b>${sign(r.districts[name].delta[key])}</b></div>`).join('')}</div>`).join('')}</details>`:'<p class="description">Проверенные значения появятся в Q8. Сейчас показан только визуальный этап проекта.</p>'}`;
 }
 function renderDrawer(){
   $('decision-footer').hidden=state.drawer!=='decisions';
@@ -195,6 +221,7 @@ function renderAdvisor(){
 function render(){renderHeader();renderMap();renderInspector();renderDrawer();renderPulseBadge();if(state.context==='advisor')renderAdvisor();syncSurfaces();}
 async function simulate(){
   if(!state.valid||state.busy)return;
+  state.visualSummary=false;
   state.revision++;const revision=state.revision;state.busy=true;state.result=null;state.alternative=null;state.branch='mine';state.snapshot='after';state.aftermath=null;state.quarter=0;state.answer='';state.feedback='';state.city=new CityPulse(state.data.city,state.city);updatePlannedAppeals();showDrawer('map',false);render();
   try{
     const response=await api('/api/simulate',{plan:state.plan});
@@ -205,11 +232,11 @@ async function simulate(){
       if(revision!==state.revision)return;state.quarter=q;
       const starting=state.plan.filter(s=>state.data.measures[s.measure_id].lag+1===q);
       $('milestone').textContent=starting.length?starting.map(s=>`${state.data.measures[s.measure_id].name} — начинает работу${s.district?' · '+s.district:''}`).join('. '):q===8?'Подводим итоги…':'Город движется вперёд.';
-      state.city.publish(q);renderHeader();renderMap();renderPulseBadge();if(state.drawer==='pulse')renderAppeals();await new Promise(resolve=>setTimeout(resolve,reduced?30:650));
+      state.city.publish(q);renderHeader();renderMap();if(state.context==='project')renderProjectCard();renderPulseBadge();if(state.drawer==='pulse')renderAppeals();await new Promise(resolve=>setTimeout(resolve,reduced?30:650));
     }
     if(revision!==state.revision)return;
     // Only now publish authoritative numeric state. Never interpolate Q1–Q7.
-    state.city.finish();state.result=response.result;state.aftermath=response.aftermath;state.appeals=response.appeals;state.busy=false;render();if(state.drawer!=='pulse')showDrawer('results');
+    state.city.finish();state.result=response.result;state.aftermath=response.aftermath;state.appeals=response.appeals;state.busy=false;render();
   }catch(error){if(revision!==state.revision)return;state.busy=false;state.quarter=0;render();toast(error.message);}
 }
 async function findAlternative(){
@@ -242,6 +269,7 @@ function mapStatus(status){
   $('presentation').disabled=status==='legacy';
 }
 function bindEvents(){
+  $('show-changes').onclick=()=>{state.snapshot='after';state.visualSummary=!state.visualSummary;render();};
   $('drawer-close').onclick=closeOverlay;$('district-close').onclick=closeOverlay;$('advisor-close').onclick=closeOverlay;
   $('help').onclick=()=>{hideSmallMenus();$('help-dialog').showModal();};$('help-close').onclick=()=>$('help-dialog').close();
   $('theme').onclick=()=>window.AkimTheme.set(window.AkimTheme.get()==='dark'?'light':'dark');
@@ -284,7 +312,7 @@ function bindEvents(){
 async function init(){
   state.data=await api('/api/catalog');state.appeals=state.data.appeals;state.city=new CityPulse(state.data.city);
   $('district-options').innerHTML=districts.map(d=>`<button data-focus-district="${d.id}">${esc(d.backendName)}</button>`).join('');
-  map=new MapAdapter($('city-map'),{district:selectDistrict,issue:selectIssue,project:(id,name)=>{if(name)state.district=name;state.relevant=null;state.filter=state.data.measures[id].direction;showDrawer('decisions');},status:mapStatus});
+  map=new MapAdapter($('city-map'),{district:selectDistrict,issue:selectIssue,project:selectProject,status:mapStatus});
   bindEvents();
   try{const saved=JSON.parse(localStorage.getItem('akim-map-plan-v1')||'null');if(Array.isArray(saved)&&saved.length<=5&&saved.every(s=>s&&Object.hasOwn(state.data.measures,s.measure_id)&&Object.keys(s).every(k=>['measure_id','district'].includes(k))&&(state.data.measures[s.measure_id].scope==='Город'?s.district==null:Object.hasOwn(state.data.districts,s.district||''))))state.plan=saved;}catch(_){}
   await changed();document.body.dataset.ready='true';

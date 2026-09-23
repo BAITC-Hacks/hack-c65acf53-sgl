@@ -46,6 +46,7 @@ try{
   assert.equal(await text('#score'),'52,56','No intermediate numeric scores');
   await wait("document.body.dataset.phase==='result'");assert.equal(await text('#score'),'56,54');
   assert.equal(await evaluate("document.body.dataset.quarter"),'8');
+  await click('#navigation [data-view="results"]');
   await click('[data-snapshot="before"]');assert.equal(await text('#score'),'52,56');
   assert.equal(await evaluate("document.querySelector('#city-map').dataset.projectCount"),'0');
   await click('[data-snapshot="after"]');assert.equal(await text('#score'),'56,54');
@@ -115,6 +116,7 @@ try{
   assert.equal(await text('#score'),'56,54');assert.equal(await evaluate("document.querySelector('#presentation').disabled"),true);
   await call('Network.setBlockedURLs',{urls:[]});await click('#map-retry');await mapReady();
   console.log('PASS tile failure preserves plan and simulation; schematic fallback and real-map retry');
+  await click('#navigation [data-view="results"]');
 
   for(const theme of ['light','dark']){
     if(await evaluate("document.documentElement.dataset.theme")!==theme){await click('#theme');await mapReady();}
